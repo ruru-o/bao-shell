@@ -1,6 +1,6 @@
 # bao-shell
 
-<img width="1230" height="643" alt="Screenshot 2026-08-09 195507" src="https://github.com/user-attachments/assets/e51c8a29-beea-4a39-8986-9dac258caf17" />
+<img width="1492" height="833" alt="image" src="https://github.com/user-attachments/assets/1c848b12-59dd-4a85-af34-b413503f9863" />
 
 ## Installation
 
