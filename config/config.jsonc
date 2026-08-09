@@ -109,7 +109,7 @@
       "type": "custom",
       "key": " ",
       "keyColor": "#DDF2FF",
-      "format": "┌─ Uptime ─────────────"
+      "format": "┌─ Uptime ────────────────────────────"
     },
     {
       "type": "uptime",
