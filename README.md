@@ -40,7 +40,7 @@ This configuration executes without requiring Administrator privileges and ensur
 
 ## Interactive TUI Interface
 
-<img width="1234" height="648" alt="Screenshot 2026-08-09 211614" src="https://github.com/user-attachments/assets/a60f7cc3-3e70-46f8-b41f-5eed865446d8" />
+<img width="1221" height="685" alt="image" src="https://github.com/user-attachments/assets/f97b8b53-29c3-40e8-8676-357601cc1832" />
 
 Running `bao-shell.ps1` without parameters opens the interactive console interface:
 
