@@ -1,4 +1,3 @@
-# bao-shell
 
 <img width="1492" height="833" alt="image" src="https://github.com/user-attachments/assets/1c848b12-59dd-4a85-af34-b413503f9863" />
 
