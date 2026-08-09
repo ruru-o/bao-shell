@@ -1,70 +1,76 @@
-# bao-shell
+<img width="1229" height="683" alt="image" src="https://github.com/user-attachments/assets/fb12bbd4-08ed-4547-b0a5-02cc9357da05" /># bao-shell
 
-<img width="1291" height="741" alt="Screenshot 2026-08-09 194149" src="https://github.com/user-attachments/assets/de56723b-0812-4cb9-8c1f-d588108624c5" />
+<img width="1251" height="706" alt="Screenshot 2026-08-09 194138" src="https://github.com/user-attachments/assets/7da4b459-1505-45bb-aa5c-228d01dfacd3" />
 
-## Quick Installation
+## Installation
 
 Run the following command in PowerShell:
 
 ```powershell
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; iex (irm https://raw.githubusercontent.com/ruru-o/bao-shell-profile/main/bao-shell.ps1)
+irm https://raw.githubusercontent.com/ruru-o/bao-shell/main/bao-shell.ps1 | iex
 ```
 
-Alternative process execution policy bypass syntax:
+### Script Execution Policy
+
+The script automatically configures the `CurrentUser` execution policy to `RemoteSigned` during setup:
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; iex (irm https://raw.githubusercontent.com/ruru-o/bao-shell-profile/main/bao-shell.ps1)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 ```
+
+This configuration executes without requiring Administrator privileges and ensures that newly spawned terminal sessions load the dot-sourced profile script without encountering `PSSecurityException: UnauthorizedAccess` errors on fresh Windows installations.
 
 ## Features
 
-- Bootstrap dependencies via winget (PowerShell 7, Oh My Posh, Fastfetch).
-- Automated font installation for JetBrainsMono Nerd Font.
-- Custom Fastfetch system info layout with ASCII branding.
-- Automatic backups of existing PowerShell profiles before modification.
-- Interactive TUI menu for installation, custom reverting, or full system purge.
+- Dependency bootstrapping via `winget` (PowerShell 7, Oh My Posh, Fastfetch).
+- Automated JetBrainsMono Nerd Font downloading and Windows GDI font installation.
+- Custom Fastfetch system information layout with ASCII branding.
+- Automatic backups of existing PowerShell profiles prior to modification.
+- Interactive TUI menu for setup, reverting configuration, or full system purges.
+- Straightforward failure diagnostic output for package installation errors.
 
-## Environment Components
-
-<img width="1230" height="685" alt="Screenshot 2026-08-09 194312" src="https://github.com/user-attachments/assets/f67b98be-8fde-4d1b-a2d4-43a11b4202e1" />
+## Components
 
 | Component | Function |
 | --- | --- |
-| `winget` | Windows Package Manager for dependency bootstrap |
+| `winget` | Windows Package Manager for dependency bootstrapping |
 | `PowerShell 7` | Core terminal shell execution environment |
 | `oh-my-posh` | Prompt engine configured with agnosterplus theme |
 | `fastfetch` | Fast system fetch visualization on terminal launch |
-| `Nerd Font` | JetBrainsMono Nerd Font Mono with glyph support |
-| `terminal theme` | Custom Windows Terminal settings (40% opacity, One Half Dark) |
+| `Nerd Font` | JetBrainsMono Nerd Font with icon glyph support |
+| `bao-shell` | Custom Windows Terminal settings (40% opacity, One Half Dark) |
 
-## Interactive Menu
+## Interactive TUI Interface
 
-Running `bao.ps1` without flags launches the interactive console interface:
+<img width="1229" height="683" alt="image" src="https://github.com/user-attachments/assets/98ad615d-cf15-42b6-8079-ebdae5be3446" />
 
-- **Install**: Bootstraps missing dependencies, configures profiles, and updates terminal settings.
+
+Running `bao-shell.ps1` without parameters opens the interactive console interface:
+
+- **Install**: Installs missing dependencies, sets up font, updates PowerShell profiles, and applies Windows Terminal defaults.
 - **Uninstall**: Opens the revert menu with granular options:
-  - `[1] Profiles & Configs`: Reverts PowerShell profiles and cleans Fastfetch configuration.
-  - `[2] Terminal Defaults`: Resets Windows Terminal font, opacity, and color schemes.
+  - `[1] Profiles & Configs`: Restores PowerShell profiles and cleans Fastfetch configurations.
+  - `[2] Terminal Defaults`: Reverts Windows Terminal font, opacity, and color schemes.
   - `[3] Full System Purge`: Restores profiles, resets terminal settings, and uninstalls packages via winget.
   - `[4] Back to Main Menu`: Cancels revert operation.
-- **Cancel**: Exits the installer without making changes.
+- **Exit**: Exits the terminal session.
 
-## Command-Line Arguments
+## Command-Line Parameters
 
-The script supports automated non-interactive parameters:
+For automated deployments or non-interactive automation:
 
 ```powershell
 # Non-interactive automated setup
-.\bao.ps1 -Force
+.\bao-shell.ps1 -Force
 
-# Skip font download during installation
-.\bao.ps1 -SkipFont
+# Non-interactive full system purge
+.\bao-shell.ps1 -Uninstall
 
-# Install without creating backup files
-.\bao.ps1 -NoBackup
+# Skip font installation during setup
+.\bao-shell.ps1 -SkipFont
 
-# Full automated system purge
-.\bao.ps1 -Uninstall
+# Overwrite profiles without creating backups
+.\bao-shell.ps1 -NoBackup
 ```
 
 | Parameter | Type | Description |
@@ -74,30 +80,17 @@ The script supports automated non-interactive parameters:
 | `-SkipFont` | Switch | Bypasses JetBrainsMono Nerd Font installation |
 | `-NoBackup` | Switch | Overwrites existing profiles without creating `.bak` backups |
 
-## File Layout
-
-```text
-bao-shell/
-├── bao.ps1                             # Installer and uninstaller tool
-├── config/
-│   ├── ascii.txt                       # ASCII banner for Fastfetch
-│   └── config.jsonc                    # Fastfetch configuration
-└── profile/
-    └── Microsoft.PowerShell_profile.ps1 # Managed PowerShell profile
-```
-
 ## Reverting Changes
 
-To completely revert all modifications:
+To revert changes and restore previous settings:
 
-1. Open PowerShell and run `.\bao.ps1`.
-2. Select `Uninstall` from the main menu.
-3. Select `[3] Full System Purge`.
+1. Run `.\bao-shell.ps1` and select `Uninstall`.
+2. Choose `[3] Full System Purge` to remove all configurations and installed packages.
 
-Alternatively, execute:
+Alternatively, run non-interactively:
 
 ```powershell
-.\bao.ps1 -Uninstall
+.\bao-shell.ps1 -Uninstall
 ```
 
-Existing profile files are preserved in `$HOME\Documents\PowerShell\` with `.bak-<timestamp>` extensions prior to any modifications.
+Existing profile files are backed up to `$HOME\Documents\PowerShell\` with `.bak-<timestamp>` extensions prior to any modifications.
