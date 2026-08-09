@@ -51,8 +51,17 @@ function Write-Gradient {
     }
 }
 
+$Script:ProgressStep  = 0
+$Script:ProgressTotal = 0
+
 function LogHeader($title) {
-    Write-Host "  $(Write-Fg '#EAF7FF')$([char]0x25C6)  $(Write-Fg '#B8E7FF')$title$Reset"
+    if ($Script:ProgressTotal -gt 0) {
+        $Script:ProgressStep = [Math]::Min($Script:ProgressTotal, $Script:ProgressStep + 1)
+        $pct = [Math]::Round(($Script:ProgressStep / $Script:ProgressTotal) * 100)
+        Write-Host "  $(Write-Fg '#EAF7FF')$([char]0x25C6)  $(Write-Fg '#B8E7FF')$title$Reset  $(Write-Fg '#579DEB')[$pct%]$Reset"
+    } else {
+        Write-Host "  $(Write-Fg '#EAF7FF')$([char]0x25C6)  $(Write-Fg '#B8E7FF')$title$Reset"
+    }
 }
 
 function Log($msg, $color = '#C7E8FF') {
@@ -207,11 +216,15 @@ function Invoke-Task {
     )
 
     $textColor = Write-Fg '#C7E8FF'
+    $pctStr = if ($Script:ProgressTotal -gt 0) {
+        $pct = [Math]::Min(100, [Math]::Round(($Script:ProgressStep / $Script:ProgressTotal) * 100))
+        "$(Write-Fg '#579DEB')[$pct%]$Reset  "
+    } else { '' }
 
     for ($i = 0; $i -lt 8; $i++) {
         $frame = $SpinnerFrames[$i % $SpinnerFrames.Count]
         $color = Write-Fg $Palette[$i % $Palette.Count]
-        try { Write-Host "$Esc[2K`r  $color$frame$Reset  $textColor$Label$Reset..." -NoNewline } catch {}
+        try { Write-Host "$Esc[2K`r  $color$frame$Reset  $pctStr$textColor$Label$Reset..." -NoNewline } catch {}
         Start-Sleep -Milliseconds 40
     }
 
@@ -262,6 +275,11 @@ function Invoke-ExternalTask {
     )
 
     $textColor = Write-Fg '#C7E8FF'
+    $pctStr = if ($Script:ProgressTotal -gt 0) {
+        $pct = [Math]::Min(100, [Math]::Round(($Script:ProgressStep / $Script:ProgressTotal) * 100))
+        "$(Write-Fg '#579DEB')[$pct%]$Reset  "
+    } else { '' }
+
     $stdOut = [System.IO.Path]::GetTempFileName()
     $stdErr = [System.IO.Path]::GetTempFileName()
     $exitCode = 1
@@ -279,7 +297,7 @@ function Invoke-ExternalTask {
             $frame = $SpinnerFrames[$frameIdx % $SpinnerFrames.Count]
             $color = Write-Fg $Palette[$frameIdx % $Palette.Count]
             $frameIdx++
-            try { Write-Host "$Esc[2K`r  $color$frame$Reset  $textColor$Label$Reset..." -NoNewline } catch {}
+            try { Write-Host "$Esc[2K`r  $color$frame$Reset  $pctStr$textColor$Label$Reset..." -NoNewline } catch {}
         }
         $proc.WaitForExit()
         $exitCode = $proc.ExitCode
@@ -335,7 +353,7 @@ function Get-RemoteBytes {
 
 function Get-Utf8TextFromBytes {
     param([byte[]]$Bytes)
-    #explicit UTF-8 decoding prevents Windows PowerShell 5.1 from parsing glyphs via active codepage
+    # Explicit UTF-8 decoding prevents Windows PowerShell 5.1 from parsing glyphs via active codepage
     $enc = New-Object System.Text.UTF8Encoding($false, $true)
     return $enc.GetString($Bytes)
 }
@@ -348,7 +366,7 @@ function Write-Utf8NoBom {
 
 function Write-Utf8Bom {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Content)
-    #uTF-8 BOM encoding ensures PowerShell 5.1 dot-sources profile files with unicode support
+    # UTF-8 BOM encoding ensures PowerShell 5.1 dot-sources profile files with unicode support
     $enc = New-Object System.Text.UTF8Encoding($true)
     [System.IO.File]::WriteAllText($Path, $Content, $enc)
 }
@@ -411,7 +429,7 @@ function Install-RepoFiles {
     $profileText = Get-Utf8TextFromBytes $profileBytes
     $profileText = Get-PortableRepoText -Text $profileText -ActualHome $actualHome
 
-    #upstream profile check is expanded into two lines for ps 5.1 parser compatibility
+    # Upstream profile check is expanded into two lines for Windows PowerShell 5.1 parser compatibility
     $profileText = $profileText.Replace(
         'if (Get-Command fastfetch -ErrorAction SilentlyContinue) {',
         '$BaoFastfetch = Get-Command -Name fastfetch -ErrorAction SilentlyContinue' + "`r`n" +
@@ -565,7 +583,7 @@ function Configure-BaoTerminalSettings {
                             $json.profiles | Add-Member -MemberType NoteProperty -Name 'defaults' -Value ([PSCustomObject]@{}) -Force
                         }
 
-                        #note properties
+                        #note properties inject default opacity, font weighting, and scheme across all profile instances
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'opacity' -Value 40 -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'useAcrylic' -Value $true -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'colorScheme' -Value 'One Half Dark' -Force
@@ -658,7 +676,7 @@ function Revert-Packages {
         $name = $pkg.Name
         if (Get-Command ($name) -ErrorAction SilentlyContinue) {
             Invoke-ExternalTask -Label "uninstalling $name" -FilePath 'winget' `
-                -ArgumentList @('uninstall', '--id', $pkg.Id, '--disable-interactivity') `
+                -ArgumentList @('uninstall', '--id', $pkg.Id, '--disable-interactivity', '--accept-source-agreements') `
                 -DoneLabel "$name uninstalled" | Out-Null
         } else {
             Invoke-Task -Label "checking $name package" -Action {
@@ -702,6 +720,16 @@ $Packages = @(
 
 function Install-WinGet {
     if (Get-Command winget -ErrorAction SilentlyContinue) { Ok 'winget'; return }
+
+    if (-not $Force) {
+        Write-Host ''
+        Note 'winget is not installed on this system.'
+        $choice = Read-Host "  do you want to download and install winget now? (y/n) [default: y]"
+        if ($choice -and $choice.Trim() -match '^(n|no)$') {
+            Note 'skipped winget installation.'
+            return
+        }
+    }
 
     Note 'winget missing - bootstrapping from GitHub releases...'
     if ($PSVersionTable.PSVersion.Major -ge 6) {
@@ -809,11 +837,17 @@ function Set-PowerShellExecutionPolicy {
 function Invoke-Install {
     Write-Host ''
     Set-PowerShellExecutionPolicy
+    $Script:ProgressStep  = 0
+    $Script:ProgressTotal = 5
+
     LogHeader 'winget';              Install-WinGet
     LogHeader 'packages';            Install-Packages
     LogHeader 'font';                Install-NerdFont
     LogHeader 'bao-profile';          Install-RepoFiles
     LogHeader 'terminal theme';      Configure-BaoTerminalSettings
+
+    $Script:ProgressStep  = 0
+    $Script:ProgressTotal = 0
     Write-Host ''
     Write-ResultCard -Title 'all set. open a new terminal to see changes.'
 }
@@ -1059,7 +1093,8 @@ function Read-UninstallMode {
 
     Show-RevertOverlayCard -Selected $selected
 
-    :revertLoop while ($true) { #labeled loop breaks out of loop from inside switch block
+    #labeled loop allows breaking out of loop from inside switch block
+    :revertLoop while ($true) {
         $keyInfo = $null
         try {
             $keyInfo = [Console]::ReadKey($true)
