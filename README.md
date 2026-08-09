@@ -1,6 +1,6 @@
-<img width="1229" height="683" alt="image" src="https://github.com/user-attachments/assets/fb12bbd4-08ed-4547-b0a5-02cc9357da05" /># bao-shell
+# bao-shell
 
-<img width="1251" height="706" alt="Screenshot 2026-08-09 194138" src="https://github.com/user-attachments/assets/7da4b459-1505-45bb-aa5c-228d01dfacd3" />
+<img width="1229" height="683" alt="image" src="https://github.com/user-attachments/assets/fb12bbd4-08ed-4547-b0a5-02cc9357da05" />
 
 ## Installation
 
