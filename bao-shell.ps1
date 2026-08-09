@@ -221,29 +221,17 @@ function Invoke-Task {
 
     $textColor = Write-Fg '#C7E8FF'
 
-    $ps = [powershell]::Create()
-    [void]$ps.AddScript($Action)
-    $asyncResult = $ps.BeginInvoke()
-
-    $frameIdx = 0
-    while (-not $asyncResult.IsCompleted) {
-        Start-Sleep -Milliseconds 60
-        if ($asyncResult.IsCompleted) { break }
-        $frame = $SpinnerFrames[$frameIdx % $SpinnerFrames.Count]
-        $color = Write-Fg $Palette[$frameIdx % $Palette.Count]
-        $frameIdx++
-        Clear-Line
-        try { Write-Host "  $color$frame$Reset  $textColor$Label$Reset..." -NoNewline } catch {}
-    }
+    $frame = $SpinnerFrames[0]
+    $color = Write-Fg $Palette[0]
+    Clear-Line
+    try { Write-Host "  $color$frame$Reset  $textColor$Label$Reset..." -NoNewline } catch {}
 
     try {
-        $null = $ps.EndInvoke($asyncResult)
-        $ps.Dispose()
+        & $Action
         Clear-Line
         if ($DoneLabel) { Ok $DoneLabel } else { Ok $Label }
         return $true
     } catch {
-        $ps.Dispose()
         Clear-Line
         Log "$([char]0x2715)  $Label failed: $_" '#579DEB'
         return $false
@@ -430,6 +418,34 @@ function Install-RepoFiles {
     $profileBytes = Get-RemoteBytes $RepoFiles['Microsoft.PowerShell_profile.ps1']
     $profileText = Get-Utf8TextFromBytes $profileBytes
     $profileText = Get-PortableRepoText -Text $profileText -ActualHome $actualHome
+
+    $ompReplacement = @'
+if (-not (Get-Command oh-my-posh -ErrorAction SilentlyContinue) -or -not (Get-Command fastfetch -ErrorAction SilentlyContinue)) {
+    $env:PATH = @(
+        [Environment]::GetEnvironmentVariable('PATH', 'Machine'),
+        [Environment]::GetEnvironmentVariable('PATH', 'User'),
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Links",
+        "$env:LOCALAPPDATA\Programs\oh-my-posh\bin",
+        "C:\Program Files\oh-my-posh\bin"
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } -join ';'
+}
+
+$BaoOmpLine = Get-Command -Name oh-my-posh -ErrorAction SilentlyContinue
+if ($null -ne $BaoOmpLine) {
+    $rawText = & $BaoOmpLine print init pwsh --config 'agnosterplus' 2>$null
+    if (-not $rawText) {
+        $rawText = & $BaoOmpLine init pwsh --config 'agnosterplus' 2>$null
+    }
+    if ($PSVersionTable.PSVersion.Major -le 5) {
+        $rawText = $rawText -replace 'Get-PSReadLineKeyHandler\s+[^\)\s\r\n]+', '@{Function=""}'
+    }
+    Invoke-Expression $rawText
+}
+'@
+
+    if ($profileText -match 'oh-my-posh init') {
+        $profileText = [regex]::Replace($profileText, '(?m)^.*oh-my-posh init.*$', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $ompReplacement })
+    }
 
     # Upstream profile check is expanded into two lines for Windows PowerShell 5.1 parser compatibility
     $profileText = $profileText.Replace(
