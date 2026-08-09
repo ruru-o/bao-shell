@@ -221,20 +221,29 @@ function Invoke-Task {
 
     $textColor = Write-Fg '#C7E8FF'
 
-    for ($i = 0; $i -lt 8; $i++) {
-        $frame = $SpinnerFrames[$i % $SpinnerFrames.Count]
-        $color = Write-Fg $Palette[$i % $Palette.Count]
+    $ps = [powershell]::Create()
+    [void]$ps.AddScript($Action)
+    $asyncResult = $ps.BeginInvoke()
+
+    $frameIdx = 0
+    while (-not $asyncResult.IsCompleted) {
+        Start-Sleep -Milliseconds 60
+        if ($asyncResult.IsCompleted) { break }
+        $frame = $SpinnerFrames[$frameIdx % $SpinnerFrames.Count]
+        $color = Write-Fg $Palette[$frameIdx % $Palette.Count]
+        $frameIdx++
         Clear-Line
         try { Write-Host "  $color$frame$Reset  $textColor$Label$Reset..." -NoNewline } catch {}
-        Start-Sleep -Milliseconds 40
     }
 
     try {
-        & $Action
+        $null = $ps.EndInvoke($asyncResult)
+        $ps.Dispose()
         Clear-Line
         if ($DoneLabel) { Ok $DoneLabel } else { Ok $Label }
         return $true
     } catch {
+        $ps.Dispose()
         Clear-Line
         Log "$([char]0x2715)  $Label failed: $_" '#579DEB'
         return $false
@@ -416,11 +425,7 @@ function Install-RepoFiles {
         [System.IO.File]::WriteAllText((Join-Path $fastfetchDir 'config.jsonc'), $text, $outEnc)
     } -DoneLabel "config.jsonc" | Out-Null
 
-    $docs = [Environment]::GetFolderPath('MyDocuments')
-    $targets = @(
-        (Join-Path $docs 'WindowsPowerShell\Microsoft.PowerShell_profile.ps1'),
-        (Join-Path $docs 'PowerShell\Microsoft.PowerShell_profile.ps1')
-    )
+    $targets = (Get-BaoTargets).ProfileTargets
 
     $profileBytes = Get-RemoteBytes $RepoFiles['Microsoft.PowerShell_profile.ps1']
     $profileText = Get-Utf8TextFromBytes $profileBytes
@@ -448,12 +453,30 @@ function Get-BaoTargets {
     if ($null -ne $Script:BaoTargetsCache) { return $Script:BaoTargetsCache }
     $actualHome = $env:USERPROFILE
     $docs = [Environment]::GetFolderPath('MyDocuments')
+
+    $possibleDocs = @(
+        $docs,
+        (Join-Path $actualHome 'Documents'),
+        (Join-Path $actualHome 'OneDrive\Documents'),
+        (Join-Path $actualHome 'OneDrive - Personal\Documents')
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+
+    $profileTargets = New-Object System.Collections.Generic.List[string]
+    foreach ($d in $possibleDocs) {
+        $profileTargets.Add((Join-Path $d 'WindowsPowerShell\Microsoft.PowerShell_profile.ps1'))
+        $profileTargets.Add((Join-Path $d 'PowerShell\Microsoft.PowerShell_profile.ps1'))
+    }
+
+    if ($PROFILE) {
+        if ($PROFILE.CurrentUserAllHosts) { $profileTargets.Add($PROFILE.CurrentUserAllHosts) }
+        if ($PROFILE.CurrentUserCurrentHost) { $profileTargets.Add($PROFILE.CurrentUserCurrentHost) }
+    }
+
+    $uniqueTargets = @($profileTargets | Select-Object -Unique)
+
     $Script:BaoTargetsCache = @{
         FastfetchDir = Join-Path $actualHome '.config\fastfetch'
-        ProfileTargets = @(
-            (Join-Path $docs 'WindowsPowerShell\Microsoft.PowerShell_profile.ps1'),
-            (Join-Path $docs 'PowerShell\Microsoft.PowerShell_profile.ps1')
-        )
+        ProfileTargets = $uniqueTargets
     }
     return $Script:BaoTargetsCache
 }
@@ -777,31 +800,17 @@ function Ensure-WinGetSourcesReady {
     if ($Script:WinGetSourcesChecked) { return }
     $Script:WinGetSourcesChecked = $true
 
-    Invoke-Task -Label 'updating winget package sources' -Action {
-        $stdOut = [System.IO.Path]::GetTempFileName()
-        $stdErr = [System.IO.Path]::GetTempFileName()
-        try {
-            $p = Start-Process -FilePath 'winget' `
-                -ArgumentList @('source', 'update', '--disable-interactivity', '--no-progress') `
-                -NoNewWindow -PassThru `
-                -RedirectStandardOutput $stdOut -RedirectStandardError $stdErr
-            $p.WaitForExit()
-            if ($p.ExitCode -ne 0) {
-                $p2 = Start-Process -FilePath 'winget' `
-                    -ArgumentList @('source', 'reset', '--force', '--disable-interactivity', '--no-progress') `
-                    -NoNewWindow -PassThru `
-                    -RedirectStandardOutput $stdOut -RedirectStandardError $stdErr
-                $p2.WaitForExit()
-                $p3 = Start-Process -FilePath 'winget' `
-                    -ArgumentList @('source', 'update', '--disable-interactivity', '--no-progress') `
-                    -NoNewWindow -PassThru `
-                    -RedirectStandardOutput $stdOut -RedirectStandardError $stdErr
-                $p3.WaitForExit()
-            }
-        } finally {
-            Remove-Item $stdOut, $stdErr -Force -ErrorAction SilentlyContinue
-        }
-    } -DoneLabel 'winget package sources updated' | Out-Null
+    $ok = Invoke-ExternalTask -Label 'updating winget package sources' -FilePath 'winget' `
+        -ArgumentList @('source', 'update', '--disable-interactivity', '--no-progress') `
+        -DoneLabel 'winget package sources updated'
+    if (-not $ok) {
+        $null = Invoke-ExternalTask -Label 'resetting winget package sources' -FilePath 'winget' `
+            -ArgumentList @('source', 'reset', '--force', '--disable-interactivity', '--no-progress') `
+            -DoneLabel 'winget package sources reset'
+        $null = Invoke-ExternalTask -Label 'updating winget package sources' -FilePath 'winget' `
+            -ArgumentList @('source', 'update', '--disable-interactivity', '--no-progress') `
+            -DoneLabel 'winget package sources updated'
+    }
 }
 
 function Install-Packages {
@@ -1111,7 +1120,7 @@ function Read-UninstallMode {
 
     Show-RevertOverlayCard -Selected $selected
 
-    #labeled loop allows breaking out of loop from inside switch block
+    # Labeled loop allows breaking out of loop from inside switch block
     :revertLoop while ($true) {
         $keyInfo = $null
         try {
