@@ -1,3 +1,6 @@
+# bao's profile
+# you can run this script normally without admin
+
 [CmdletBinding()]
 param(
     [switch]$SkipFont,
@@ -76,15 +79,10 @@ function Note($msg) {
     }
 }
 
-$Script:ConsoleWidthCache = 0
 function Get-ConsoleWidth {
-    if ($Script:ConsoleWidthCache -gt 10) { return $Script:ConsoleWidthCache }
     try {
         $w = $Host.UI.RawUI.WindowSize.Width
-        if ($w -gt 10) {
-            $Script:ConsoleWidthCache = $w
-            return $w
-        }
+        if ($w -gt 10) { return $w }
     } catch {}
     return 80
 }
@@ -567,7 +565,7 @@ function Configure-BaoTerminalSettings {
                             $json.profiles | Add-Member -MemberType NoteProperty -Name 'defaults' -Value ([PSCustomObject]@{}) -Force
                         }
 
-                        # Note properties inject default opacity, font weighting, and scheme across all profile instances
+                        #note properties inject default opacity, font weighting, and scheme across all profile instances
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'opacity' -Value 40 -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'useAcrylic' -Value $true -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'colorScheme' -Value 'One Half Dark' -Force
@@ -908,28 +906,35 @@ function Read-Menu {
 
     $extraLines = if ($Hint) { 2 } else { 1 }
 
-    $maxLabelW = 11
-    $maxTagW   = 14
-
     $render = {
+        $rawLines = for ($i = 0; $i -lt $Items.Count; $i++) {
+            $selChar = if ($i -eq $selected) { "$([char]0x276F) " } else { "  " }
+            $label = $Items[$i]
+            $tag = $StatusTags[$i]
+            if ($tag) { "$selChar$label  $tag" } else { "$selChar$label" }
+        }
+
+        $maxW = 0
+        foreach ($rl in $rawLines) {
+            if ($rl.Length -gt $maxW) { $maxW = $rl.Length }
+        }
+
+        $pad = [Math]::Max(0, [Math]::Floor(($width - $maxW) / 2))
+        $indent = ' ' * $pad
+
         for ($i = 0; $i -lt $Items.Count; $i++) {
             $isSel = ($i -eq $selected)
             $isDim = $Disabled[$i]
-            $labelRaw = if ($isSel) { "$([char]0x276F) $($Items[$i])" } else { "  $($Items[$i])" }
-            $labelStr = $labelRaw.PadRight($maxLabelW)
-
-            $tagRaw = $StatusTags[$i]
-            $tagPart = if ($tagRaw) { "$([char]0x2022) " + $tagRaw.PadRight($maxTagW) } else { "".PadRight($maxTagW + 2) }
+            $selChar = if ($isSel) { "$([char]0x276F) " } else { "  " }
+            $label = $Items[$i]
+            $tag = $StatusTags[$i]
 
             $color = if ($isDim) { $grey } elseif ($isSel) { $Accent } else { $Dim }
-            $tagColor = if ($isDim) { $greyTag } else { $Dim }
+            $tagColor = if ($isDim) { $greyTag } elseif ($isSel) { '#A9D9FF' } else { $Dim }
 
-            $rowContent = "$labelStr  $tagPart"
-            $pad = [Math]::Max(0, [Math]::Floor(($width - $rowContent.Length) / 2))
-
-            $line = "$(' ' * $pad)$(Write-Fg $color)$labelStr$Reset"
-            if ($tagRaw) {
-                $line += "  $(Write-Fg $tagColor)$([char]0x2022) $tagRaw$Reset"
+            $line = "$indent$(Write-Fg $color)$selChar$label$Reset"
+            if ($tag) {
+                $line += "  $(Write-Fg $tagColor)$tag$Reset"
             }
             Write-Host $line
         }
@@ -980,9 +985,9 @@ function Read-Choice {
     $items = @('Install', 'Uninstall', 'Exit')
     $disabled = @($false, $false, $false)
     $tags = @(
-        $(if ($installed) { 'installed' } else { '' }),
-        $(if ($installed) { 'revert' } else { 'revert options' }),
-        'exit terminal'
+        $(if ($installed) { "$([char]0x25CF)" } else { '' }),
+        $(if ($installed) { '' } else { "$([char]0x25CB)" }),
+        ''
     )
     $choice = Read-Menu -Items $items -Disabled $disabled -StatusTags $tags -Hint ("$([char]0x2191)$([char]0x2193) to move $([char]0xB7) enter to confirm")
     Write-Host ''
