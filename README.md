@@ -37,8 +37,7 @@ This configuration executes without requiring Administrator privileges and ensur
 | `PowerShell 7` | Core terminal shell execution environment |
 | `oh-my-posh` | Prompt engine configured with agnosterplus theme |
 | `fastfetch` | Fast system fetch visualization on terminal launch |
-| `Nerd Font` | JetBrainsMono Nerd Font with icon glyph support |
-| `bao-shell` | Custom Windows Terminal settings (40% opacity, One Half Dark) |
+| `bao-shell` | My Windows Terminal settings |
 
 ## Interactive TUI Interface
 
