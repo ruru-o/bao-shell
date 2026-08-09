@@ -10,7 +10,8 @@ Run the following command in PowerShell:
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; iex (irm https://raw.githubusercontent.com/ruru-o/bao-shell-profile/main/bao-shell.ps1)
 ```
 
-[!CAUTION] If you're in a newly installed operating system, Windows blocks custom PowerShell scripts by default on fresh installs. Setting `CurrentUser` scope enables user profile scripts without requiring administrator privileges.
+> [!CAUTION]
+> If you're in a newly installed operating system, Windows blocks custom PowerShell scripts by default on fresh installs. Setting `CurrentUser` scope enables user profile scripts without requiring administrator privileges.
 
 Alternative process execution policy bypass syntax:
 
