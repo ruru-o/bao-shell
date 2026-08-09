@@ -74,7 +74,6 @@ For automated deployments or non-interactive automation:
 | --- | --- | --- |
 | `-Force` | Switch | Runs non-interactive installation immediately |
 | `-Uninstall` | Switch | Performs non-interactive full system purge |
-| `-SkipFont` | Switch | Bypasses JetBrainsMono Nerd Font installation |
 | `-NoBackup` | Switch | Overwrites existing profiles without creating `.bak` backups |
 
 ## Reverting Changes
