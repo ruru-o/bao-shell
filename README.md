@@ -1,6 +1,6 @@
 # bao-shell
 
-<img width="1229" height="683" alt="image" src="https://github.com/user-attachments/assets/fb12bbd4-08ed-4547-b0a5-02cc9357da05" />
+<img width="1251" height="706" alt="Screenshot 2026-08-09 194138" src="https://github.com/user-attachments/assets/8c95222d-011f-47d8-b203-6374b63956e2" />
 
 ## Installation
 
@@ -42,8 +42,7 @@ This configuration executes without requiring Administrator privileges and ensur
 
 ## Interactive TUI Interface
 
-<img width="1229" height="683" alt="image" src="https://github.com/user-attachments/assets/98ad615d-cf15-42b6-8079-ebdae5be3446" />
-
+<img width="1234" height="648" alt="Screenshot 2026-08-09 211614" src="https://github.com/user-attachments/assets/a60f7cc3-3e70-46f8-b41f-5eed865446d8" />
 
 Running `bao-shell.ps1` without parameters opens the interactive console interface:
 
