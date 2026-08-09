@@ -581,7 +581,7 @@ function Configure-BaoTerminalSettings {
                         }
 
                         $fontObj = [PSCustomObject]@{
-                            face = 'JetBrainsMono Nerd Font Mono'
+                            face = 'JetBrainsMono NFM'
                             weight = 'semi-bold'
                         }
 
@@ -835,12 +835,18 @@ $Script:FontCache = $null
 function Test-JetBrainsFontInstalled {
     if ($null -ne $Script:FontCache) { return $Script:FontCache }
     try {
+        $userFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+        $userFiles = Get-ChildItem -Path $userFontsDir -Filter "*JetBrainsMono*" -ErrorAction SilentlyContinue
+        if ($userFiles) {
+            $Script:FontCache = $true
+            return $true
+        }
         $hkcu = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts' -ErrorAction SilentlyContinue
         $hklm = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' -ErrorAction SilentlyContinue
         $props = @()
         if ($hkcu) { $props += $hkcu.PSObject.Properties.Name }
         if ($hklm) { $props += $hklm.PSObject.Properties.Name }
-        if ($props -match 'JetBrains') {
+        if ($props -match 'JetBrainsMono NF' -or $props -match 'JetBrainsMonoNerdFont' -or $props -match 'JetBrainsMono NFM') {
             $Script:FontCache = $true
             return $true
         }
@@ -855,13 +861,71 @@ function Install-NerdFont {
         Ok "Nerd Font (JetBrainsMono already installed)"
         return
     }
-    if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
-        Invoke-ExternalTask -Label 'installing Nerd Font (JetBrainsMono)' -FilePath 'oh-my-posh' `
-            -ArgumentList @('font', 'install', 'JetBrainsMono') `
-            -DoneLabel "Nerd Font - set 'JetBrainsMono Nerd Font Mono' as your terminal font" | Out-Null
-    } else {
-        Note 'oh-my-posh not on PATH yet - reopen terminal and run: oh-my-posh font install JetBrainsMono'
+
+    $userFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+    if (-not (Test-Path -LiteralPath $userFontsDir)) {
+        New-Item -ItemType Directory -Path $userFontsDir -Force | Out-Null
     }
+
+    Invoke-Task -Label 'installing Nerd Font (JetBrainsMono)' -Action {
+        $tmp = Join-Path $env:TEMP "bao-font-$(Get-Random)"
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        try {
+            $zipPath = Join-Path $tmp 'JetBrainsMono.zip'
+            Invoke-WebRequest -Uri 'https://github.com/ryanoasis/nerd-fonts/releases/download/v3.2.1/JetBrainsMono.zip' -OutFile $zipPath -UseBasicParsing
+            Expand-Archive -Path $zipPath -DestinationPath $tmp -Force
+
+            $fontFiles = Get-ChildItem -Path $tmp -Filter "*.ttf" -Recurse
+            $regKey = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
+
+            foreach ($file in $fontFiles) {
+                $dest = Join-Path $userFontsDir $file.Name
+                if (-not (Test-Path -LiteralPath $dest)) {
+                    try {
+                        Copy-Item -Path $file.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
+                    } catch {}
+                }
+
+                Set-ItemProperty -Path $regKey -Name "$($file.BaseName) (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
+
+                if ($file.Name -match 'JetBrainsMonoNerdFontMono-Regular') {
+                    Set-ItemProperty -Path $regKey -Name "JetBrainsMono NFM (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
+                    Set-ItemProperty -Path $regKey -Name "JetBrainsMono Nerd Font Mono (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
+                }
+                if ($file.Name -match 'JetBrainsMonoNerdFont-Regular') {
+                    Set-ItemProperty -Path $regKey -Name "JetBrainsMono NF (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
+                    Set-ItemProperty -Path $regKey -Name "JetBrainsMono Nerd Font (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
+                }
+            }
+            $Script:FontCache = $true
+        } finally {
+            Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } -DoneLabel "Nerd Font installed successfully" | Out-Null
+
+    # Broadcast WM_FONTCHANGE to Windows shell
+    try {
+        $Signature = @"
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(
+    IntPtr hWnd,
+    uint Msg,
+    UIntPtr wParam,
+    string lParam,
+    uint fuFlags,
+    uint uTimeout,
+    out UIntPtr lpdwResult
+);
+"@
+        $FontChangeType = Add-Type -MemberDefinition $Signature -Name "FontChangeNotifier" -Namespace "BaoFont" -PassThru -ErrorAction SilentlyContinue
+        if ($FontChangeType) {
+            $HWND_BROADCAST = [IntPtr]0xffff
+            $WM_FONTCHANGE = 0x001D
+            $SMTO_ABORTIFHUNG = 0x0002
+            $result = [UIntPtr]::Zero
+            [BaoFont.FontChangeNotifier]::SendMessageTimeout($HWND_BROADCAST, $WM_FONTCHANGE, [UIntPtr]::Zero, $null, $SMTO_ABORTIFHUNG, 1000, [ref]$result) | Out-Null
+        }
+    } catch {}
 }
 
 function Set-PowerShellExecutionPolicy {
