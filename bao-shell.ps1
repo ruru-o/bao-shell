@@ -229,11 +229,11 @@ function Invoke-Task {
 
 function Get-FailureReason {
     param([int]$ExitCode, [string]$StdText)
-    # Match standard winget exit codes (0x8a15002b = admin required, 0x8a15004f = already installed)
+    # Match standard winget exit codes and output phrases
     if ($StdText -match 'administrator|admin|0x8a15002b|-1978335189') {
         return 'requires admin privileges'
     }
-    if ($StdText -match 'already installed|0x8a15004f|-1978335153') {
+    if ($StdText -match 'already installed|existing package|No available upgrade|0x8a15004f|-1978335153') {
         return 'already installed'
     }
     if ($StdText -match 'No package found|No sources|source') {
@@ -335,7 +335,7 @@ function Get-RemoteBytes {
 
 function Get-Utf8TextFromBytes {
     param([byte[]]$Bytes)
-    # Explicit UTF-8 decoding prevents Windows PowerShell 5.1 from parsing glyphs via active codepage
+    #explicit UTF-8 decoding prevents Windows PowerShell 5.1 from parsing glyphs via active codepage
     $enc = New-Object System.Text.UTF8Encoding($false, $true)
     return $enc.GetString($Bytes)
 }
@@ -348,7 +348,7 @@ function Write-Utf8NoBom {
 
 function Write-Utf8Bom {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Content)
-    # UTF-8 BOM encoding ensures PowerShell 5.1 dot-sources profile files with unicode support
+    #uTF-8 BOM encoding ensures PowerShell 5.1 dot-sources profile files with unicode support
     $enc = New-Object System.Text.UTF8Encoding($true)
     [System.IO.File]::WriteAllText($Path, $Content, $enc)
 }
@@ -411,7 +411,7 @@ function Install-RepoFiles {
     $profileText = Get-Utf8TextFromBytes $profileBytes
     $profileText = Get-PortableRepoText -Text $profileText -ActualHome $actualHome
 
-    # Upstream profile check is expanded into two lines for Windows PowerShell 5.1 parser compatibility
+    #upstream profile check is expanded into two lines for ps 5.1 parser compatibility
     $profileText = $profileText.Replace(
         'if (Get-Command fastfetch -ErrorAction SilentlyContinue) {',
         '$BaoFastfetch = Get-Command -Name fastfetch -ErrorAction SilentlyContinue' + "`r`n" +
@@ -565,7 +565,7 @@ function Configure-BaoTerminalSettings {
                             $json.profiles | Add-Member -MemberType NoteProperty -Name 'defaults' -Value ([PSCustomObject]@{}) -Force
                         }
 
-                        #note properties inject default opacity, font weighting, and scheme across all profile instances
+                        #note properties
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'opacity' -Value 40 -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'useAcrylic' -Value $true -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'colorScheme' -Value 'One Half Dark' -Force
@@ -743,13 +743,18 @@ function Install-WinGet {
 }
 
 function Install-Packages {
+    Sync-Path
     foreach ($pkg in $Packages) {
         if (Get-Command $pkg.Cmd -ErrorAction SilentlyContinue) {
             Ok "$($pkg.Name) (already installed)"
         } else {
-            Invoke-ExternalTask -Label "installing $($pkg.Name)" -FilePath 'winget' `
+            $ok = Invoke-ExternalTask -Label "installing $($pkg.Name)" -FilePath 'winget' `
                 -ArgumentList @('install', '--id', $pkg.Id, '--exact', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity') `
-                -DoneLabel $pkg.Name | Out-Null
+                -DoneLabel $pkg.Name
+            if (-not $ok) {
+                #sync path again in case package binary was just placed in winget path
+                Sync-Path
+            }
         }
     }
     Sync-Path
@@ -1054,8 +1059,7 @@ function Read-UninstallMode {
 
     Show-RevertOverlayCard -Selected $selected
 
-    # Labeled loop allows breaking out of loop from inside switch block
-    :revertLoop while ($true) {
+    :revertLoop while ($true) { #labeled loop breaks out of loop from inside switch block
         $keyInfo = $null
         try {
             $keyInfo = [Console]::ReadKey($true)
