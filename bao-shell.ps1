@@ -580,16 +580,27 @@ function Configure-BaoTerminalSettings {
                             $json.profiles | Add-Member -MemberType NoteProperty -Name 'defaults' -Value ([PSCustomObject]@{}) -Force
                         }
 
-                        #note properties inject default opacity, font weighting, and scheme across all profile instances
-                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'opacity' -Value 40 -Force
-                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'useAcrylic' -Value $true -Force
-                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'colorScheme' -Value 'One Half Dark' -Force
-
                         $fontObj = [PSCustomObject]@{
                             face = 'JetBrainsMono Nerd Font Mono'
                             weight = 'semi-bold'
                         }
+
+                        # Apply theme defaults across all profiles
+                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'opacity' -Value 40 -Force
+                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'useAcrylic' -Value $true -Force
+                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'colorScheme' -Value 'One Half Dark' -Force
+                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'cursorShape' -Value 'filledBox' -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'font' -Value $fontObj -Force
+
+                        # Ensure individual profiles inherit theme defaults and don't override with old schemes/font/opacity
+                        if ($json.profiles.list) {
+                            foreach ($p in $json.profiles.list) {
+                                $p.PSObject.Properties.Remove('colorScheme')
+                                $p.PSObject.Properties.Remove('opacity')
+                                $p.PSObject.Properties.Remove('useAcrylic')
+                                $p.PSObject.Properties.Remove('font')
+                            }
+                        }
 
                         if (-not $json.schemes) {
                             $json | Add-Member -MemberType NoteProperty -Name 'schemes' -Value @() -Force
@@ -630,6 +641,7 @@ function Revert-TerminalAndConsoleSettings {
                             $json.profiles.defaults.PSObject.Properties.Remove('opacity')
                             $json.profiles.defaults.PSObject.Properties.Remove('colorScheme')
                             $json.profiles.defaults.PSObject.Properties.Remove('useAcrylic')
+                            $json.profiles.defaults.PSObject.Properties.Remove('cursorShape')
                         }
                         if ($json.profiles.list) {
                             foreach ($p in $json.profiles.list) {
@@ -673,7 +685,7 @@ function Revert-Packages {
         $name = $pkg.Name
         if (Get-Command ($name) -ErrorAction SilentlyContinue) {
             Invoke-ExternalTask -Label "uninstalling $name" -FilePath 'winget' `
-                -ArgumentList @('uninstall', '--id', $pkg.Id, '--disable-interactivity', '--accept-source-agreements') `
+                -ArgumentList @('uninstall', '--id', $pkg.Id, '--disable-interactivity', '--accept-source-agreements', '--no-progress') `
                 -DoneLabel "$name uninstalled" | Out-Null
         } else {
             Invoke-Task -Label "checking $name package" -Action {
@@ -767,19 +779,38 @@ function Install-WinGet {
     }
 }
 
+$Script:WinGetSourcesChecked = $false
+
 function Ensure-WinGetSourcesReady {
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { return }
+    if ($Script:WinGetSourcesChecked) { return }
+    $Script:WinGetSourcesChecked = $true
+
+    Invoke-Task -Label 'updating winget package sources' -Action {
+        $stdOut = [System.IO.Path]::GetTempFileName()
+        $stdErr = [System.IO.Path]::GetTempFileName()
         try {
-            $p = Start-Process winget -ArgumentList @('source', 'update', '--disable-interactivity') `
-                -NoNewWindow -PassThru -Wait -ErrorAction SilentlyContinue
-            if ($p -and $p.ExitCode -ne 0) {
-                Start-Process winget -ArgumentList @('source', 'reset', '--force', '--disable-interactivity') `
-                    -NoNewWindow -PassThru -Wait -ErrorAction SilentlyContinue | Out-Null
-                Start-Process winget -ArgumentList @('source', 'update', '--disable-interactivity') `
-                    -NoNewWindow -PassThru -Wait -ErrorAction SilentlyContinue | Out-Null
+            $p = Start-Process -FilePath 'winget' `
+                -ArgumentList @('source', 'update', '--disable-interactivity', '--no-progress') `
+                -NoNewWindow -PassThru `
+                -RedirectStandardOutput $stdOut -RedirectStandardError $stdErr
+            $p.WaitForExit()
+            if ($p.ExitCode -ne 0) {
+                $p2 = Start-Process -FilePath 'winget' `
+                    -ArgumentList @('source', 'reset', '--force', '--disable-interactivity', '--no-progress') `
+                    -NoNewWindow -PassThru `
+                    -RedirectStandardOutput $stdOut -RedirectStandardError $stdErr
+                $p2.WaitForExit()
+                $p3 = Start-Process -FilePath 'winget' `
+                    -ArgumentList @('source', 'update', '--disable-interactivity', '--no-progress') `
+                    -NoNewWindow -PassThru `
+                    -RedirectStandardOutput $stdOut -RedirectStandardError $stdErr
+                $p3.WaitForExit()
             }
-        } catch {}
-    }
+        } finally {
+            Remove-Item $stdOut, $stdErr -Force -ErrorAction SilentlyContinue
+        }
+    } -DoneLabel 'winget package sources updated' | Out-Null
 }
 
 function Install-Packages {
@@ -790,10 +821,9 @@ function Install-Packages {
             Ok "$($pkg.Name) (already installed)"
         } else {
             $ok = Invoke-ExternalTask -Label "installing $($pkg.Name)" -FilePath 'winget' `
-                -ArgumentList @('install', '--id', $pkg.Id, '--exact', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity') `
+                -ArgumentList @('install', '--id', $pkg.Id, '--exact', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity', '--no-progress') `
                 -DoneLabel $pkg.Name
             if (-not $ok) {
-                Ensure-WinGetSourcesReady
                 Sync-Path
             }
         }
@@ -850,8 +880,7 @@ function Set-PowerShellExecutionPolicy {
 function Invoke-Install {
     Write-Host ''
     Set-PowerShellExecutionPolicy
-    $Script:ProgressStep  = 0
-    $Script:ProgressTotal = 5
+    $Script:WinGetSourcesChecked = $false
 
     LogHeader 'winget';              Install-WinGet
     LogHeader 'packages';            Install-Packages
@@ -859,10 +888,31 @@ function Invoke-Install {
     LogHeader 'bao-profile';          Install-RepoFiles
     LogHeader 'terminal theme';      Configure-BaoTerminalSettings
 
-    $Script:ProgressStep  = 0
-    $Script:ProgressTotal = 0
     Write-Host ''
-    Write-ResultCard -Title 'all set. open a new terminal to see changes.'
+    if (-not $Force) {
+        Write-ResultCard -Title 'all set. installation complete.' -Subtitle 'open new terminal window at home? (y/n) [y]'
+        try { [Console]::CursorVisible = $false } catch {}
+        $keyInfo = $null
+        try { $keyInfo = [Console]::ReadKey($true) } catch {}
+        $char = if ($keyInfo) { [string]$keyInfo.KeyChar } else { '' }
+
+        if ($char -match '^(n|N)$') {
+            return
+        }
+
+        # Launch fresh terminal session at Home (~)
+        if (Get-Command wt -ErrorAction SilentlyContinue) {
+            Start-Process wt.exe -ArgumentList @('-d', "$env:USERPROFILE")
+        } elseif (Get-Command pwsh -ErrorAction SilentlyContinue) {
+            Start-Process pwsh.exe -ArgumentList @('-NoExit', '-Command', "Set-Location '$env:USERPROFILE'")
+        } else {
+            Start-Process powershell.exe -ArgumentList @('-NoExit', '-Command', "Set-Location '$env:USERPROFILE'")
+        }
+        try { Clear-Host } catch {}
+        [Environment]::Exit(0)
+    } else {
+        Write-ResultCard -Title 'all set. installation complete.'
+    }
 }
 
 function Test-ProfileInstalled {
