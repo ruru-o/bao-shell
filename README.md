@@ -6,8 +6,8 @@
 
 Run the following command in PowerShell:
 > [!WARNING]
-<br>
 > On a fresh Windows install, PowerShell blocks custom scripts by default. Set the `CurrentUser` execution policy to allow your user scripts without admin access.
+<br>
 ```powershell
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; iex (irm https://raw.githubusercontent.com/ruru-o/bao-shell-profile/main/bao-shell.ps1)
 ```
