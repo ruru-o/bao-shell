@@ -882,7 +882,7 @@ function Show-Plan {
 
     Write-Host ''
     $installed = Test-BaoInstalled
-    $stateTag   = if ($installed) { '● installed' } else { '○ clean' }
+    $stateTag   = if ($installed) { "$([char]0x25CF) installed" } else { "$([char]0x25CB) not installed" }
     $stateColor = if ($installed) { '#A9D9FF' } else { '#8FA6BD' }
     Write-CenteredLine $stateTag $stateColor
     Write-Host ''
@@ -907,27 +907,17 @@ function Read-Menu {
     $extraLines = if ($Hint) { 2 } else { 1 }
 
     $render = {
-        $rawLines = for ($i = 0; $i -lt $Items.Count; $i++) {
-            $selChar = if ($i -eq $selected) { "$([char]0x276F) " } else { "  " }
-            $label = $Items[$i]
-            $tag = $StatusTags[$i]
-            if ($tag) { "$selChar$label  $tag" } else { "$selChar$label" }
-        }
-
-        $maxW = 0
-        foreach ($rl in $rawLines) {
-            if ($rl.Length -gt $maxW) { $maxW = $rl.Length }
-        }
-
-        $pad = [Math]::Max(0, [Math]::Floor(($width - $maxW) / 2))
-        $indent = ' ' * $pad
-
+        $width = Get-ConsoleWidth
         for ($i = 0; $i -lt $Items.Count; $i++) {
             $isSel = ($i -eq $selected)
             $isDim = $Disabled[$i]
             $selChar = if ($isSel) { "$([char]0x276F) " } else { "  " }
             $label = $Items[$i]
-            $tag = $StatusTags[$i]
+            $tag = if ($StatusTags) { $StatusTags[$i] } else { $null }
+
+            $rawStr = if ($tag) { "$selChar$label  $tag" } else { "$selChar$label" }
+            $pad = [Math]::Max(0, [Math]::Floor(($width - $rawStr.Length) / 2))
+            $indent = ' ' * $pad
 
             $color = if ($isDim) { $grey } elseif ($isSel) { $Accent } else { $Dim }
             $tagColor = if ($isDim) { $greyTag } elseif ($isSel) { '#A9D9FF' } else { $Dim }
@@ -981,15 +971,9 @@ function Read-Menu {
 
 function Read-Choice {
     Write-Host ''
-    $installed = Test-BaoInstalled
     $items = @('Install', 'Uninstall', 'Exit')
     $disabled = @($false, $false, $false)
-    $tags = @(
-        $(if ($installed) { "$([char]0x25CF)" } else { '' }),
-        $(if ($installed) { '' } else { "$([char]0x25CB)" }),
-        ''
-    )
-    $choice = Read-Menu -Items $items -Disabled $disabled -StatusTags $tags -Hint ("$([char]0x2191)$([char]0x2193) to move $([char]0xB7) enter to confirm")
+    $choice = Read-Menu -Items $items -Disabled $disabled -StatusTags $null -Hint ("$([char]0x2191)$([char]0x2193) to move $([char]0xB7) enter to confirm")
     Write-Host ''
     return $items[$choice]
 }
