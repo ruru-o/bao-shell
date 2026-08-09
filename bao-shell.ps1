@@ -568,7 +568,7 @@ function Configure-BaoTerminalSettings {
     foreach ($wtPath in $wtPaths) {
         if (Test-Path -LiteralPath $wtPath -PathType Leaf) {
             $configured = $true
-            Invoke-Task -Label "configuring Windows Terminal theme (40% opacity, One Half Dark, semi-bold font)" -Action {
+            Invoke-Task -Label "configuring Windows Terminal theme (40% opacity, One Half Dark)" -Action {
                 $raw = Get-Content -LiteralPath $wtPath -Raw -ErrorAction SilentlyContinue
                 if ($raw) {
                     $json = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
@@ -580,25 +580,17 @@ function Configure-BaoTerminalSettings {
                             $json.profiles | Add-Member -MemberType NoteProperty -Name 'defaults' -Value ([PSCustomObject]@{}) -Force
                         }
 
-                        $fontObj = [PSCustomObject]@{
-                            face = 'JetBrainsMono NFM'
-                            weight = 'semi-bold'
-                        }
-
                         # Apply theme defaults across all profiles
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'opacity' -Value 40 -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'useAcrylic' -Value $true -Force
                         $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'colorScheme' -Value 'One Half Dark' -Force
-                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'cursorShape' -Value 'filledBox' -Force
-                        $json.profiles.defaults | Add-Member -MemberType NoteProperty -Name 'font' -Value $fontObj -Force
 
-                        # Ensure individual profiles inherit theme defaults and don't override with old schemes/font/opacity
+                        # Ensure individual profiles inherit theme defaults and don't override with old schemes/opacity
                         if ($json.profiles.list) {
                             foreach ($p in $json.profiles.list) {
                                 $p.PSObject.Properties.Remove('colorScheme')
                                 $p.PSObject.Properties.Remove('opacity')
                                 $p.PSObject.Properties.Remove('useAcrylic')
-                                $p.PSObject.Properties.Remove('font')
                             }
                         }
 
@@ -615,7 +607,7 @@ function Configure-BaoTerminalSettings {
                         [System.IO.File]::WriteAllText($wtPath, $newJson, [System.Text.Encoding]::UTF8)
                     }
                 }
-            } -DoneLabel "Windows Terminal configured (40% opacity, One Half Dark, semi-bold font)" | Out-Null
+            } -DoneLabel "Windows Terminal configured (40% opacity, One Half Dark)" | Out-Null
         }
     }
 }
@@ -637,7 +629,6 @@ function Revert-TerminalAndConsoleSettings {
                     $json = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
                     if ($json -and $json.profiles) {
                         if ($json.profiles.defaults) {
-                            $json.profiles.defaults.PSObject.Properties.Remove('font')
                             $json.profiles.defaults.PSObject.Properties.Remove('opacity')
                             $json.profiles.defaults.PSObject.Properties.Remove('colorScheme')
                             $json.profiles.defaults.PSObject.Properties.Remove('useAcrylic')
@@ -645,9 +636,6 @@ function Revert-TerminalAndConsoleSettings {
                         }
                         if ($json.profiles.list) {
                             foreach ($p in $json.profiles.list) {
-                                if ($p.font -and $p.font.face -match 'JetBrains') {
-                                    $p.PSObject.Properties.Remove('font')
-                                }
                                 if ($p.opacity) {
                                     $p.PSObject.Properties.Remove('opacity')
                                 }
@@ -669,11 +657,14 @@ function Revert-TerminalAndConsoleSettings {
         } -DoneLabel "Windows Terminal settings already clean" | Out-Null
     }
 
-    Invoke-Task -Label "reverting console registry settings (HKCU:\Console)" -Action {
-        Remove-ItemProperty -Path 'HKCU:\Console' -Name 'FaceName' -ErrorAction SilentlyContinue
-        Remove-ItemProperty -Path 'HKCU:\Console' -Name 'FontSize' -ErrorAction SilentlyContinue
-        Remove-ItemProperty -Path 'HKCU:\Console' -Name 'WindowAlpha' -ErrorAction SilentlyContinue
-    } -DoneLabel "Console registry reverted to defaults" | Out-Null
+    Invoke-Task -Label 'reverting console registry settings (HKCU:\Console)' -Action {
+        $regPath = 'HKCU:\Console'
+        Remove-ItemProperty -Path $regPath -Name 'FaceName' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'FontFamily' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'FontSize' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'FontWeight' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name 'WindowAlpha' -ErrorAction SilentlyContinue
+    } -DoneLabel 'Console registry reverted to defaults' | Out-Null
 }
 
 function Revert-Packages {
@@ -831,103 +822,6 @@ function Install-Packages {
     Sync-Path
 }
 
-$Script:FontCache = $null
-function Test-JetBrainsFontInstalled {
-    if ($null -ne $Script:FontCache) { return $Script:FontCache }
-    try {
-        $userFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
-        $userFiles = Get-ChildItem -Path $userFontsDir -Filter "*JetBrainsMono*" -ErrorAction SilentlyContinue
-        if ($userFiles) {
-            $Script:FontCache = $true
-            return $true
-        }
-        $hkcu = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts' -ErrorAction SilentlyContinue
-        $hklm = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' -ErrorAction SilentlyContinue
-        $props = @()
-        if ($hkcu) { $props += $hkcu.PSObject.Properties.Name }
-        if ($hklm) { $props += $hklm.PSObject.Properties.Name }
-        if ($props -match 'JetBrainsMono NF' -or $props -match 'JetBrainsMonoNerdFont' -or $props -match 'JetBrainsMono NFM') {
-            $Script:FontCache = $true
-            return $true
-        }
-    } catch {}
-    $Script:FontCache = $false
-    return $false
-}
-
-function Install-NerdFont {
-    if ($SkipFont) { Note 'Nerd Font skipped (-SkipFont)'; return }
-    if (Test-JetBrainsFontInstalled) {
-        Ok "Nerd Font (JetBrainsMono already installed)"
-        return
-    }
-
-    $userFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
-    if (-not (Test-Path -LiteralPath $userFontsDir)) {
-        New-Item -ItemType Directory -Path $userFontsDir -Force | Out-Null
-    }
-
-    Invoke-Task -Label 'installing Nerd Font (JetBrainsMono)' -Action {
-        $tmp = Join-Path $env:TEMP "bao-font-$(Get-Random)"
-        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-        try {
-            $zipPath = Join-Path $tmp 'JetBrainsMono.zip'
-            Invoke-WebRequest -Uri 'https://github.com/ryanoasis/nerd-fonts/releases/download/v3.2.1/JetBrainsMono.zip' -OutFile $zipPath -UseBasicParsing
-            Expand-Archive -Path $zipPath -DestinationPath $tmp -Force
-
-            $fontFiles = Get-ChildItem -Path $tmp -Filter "*.ttf" -Recurse
-            $regKey = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
-
-            foreach ($file in $fontFiles) {
-                $dest = Join-Path $userFontsDir $file.Name
-                if (-not (Test-Path -LiteralPath $dest)) {
-                    try {
-                        Copy-Item -Path $file.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
-                    } catch {}
-                }
-
-                Set-ItemProperty -Path $regKey -Name "$($file.BaseName) (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
-
-                if ($file.Name -match 'JetBrainsMonoNerdFontMono-Regular') {
-                    Set-ItemProperty -Path $regKey -Name "JetBrainsMono NFM (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
-                    Set-ItemProperty -Path $regKey -Name "JetBrainsMono Nerd Font Mono (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
-                }
-                if ($file.Name -match 'JetBrainsMonoNerdFont-Regular') {
-                    Set-ItemProperty -Path $regKey -Name "JetBrainsMono NF (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
-                    Set-ItemProperty -Path $regKey -Name "JetBrainsMono Nerd Font (TrueType)" -Value $dest -Force -ErrorAction SilentlyContinue
-                }
-            }
-            $Script:FontCache = $true
-        } finally {
-            Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    } -DoneLabel "Nerd Font installed successfully" | Out-Null
-
-    # Broadcast WM_FONTCHANGE to Windows shell
-    try {
-        $Signature = @"
-[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-public static extern IntPtr SendMessageTimeout(
-    IntPtr hWnd,
-    uint Msg,
-    UIntPtr wParam,
-    string lParam,
-    uint fuFlags,
-    uint uTimeout,
-    out UIntPtr lpdwResult
-);
-"@
-        $FontChangeType = Add-Type -MemberDefinition $Signature -Name "FontChangeNotifier" -Namespace "BaoFont" -PassThru -ErrorAction SilentlyContinue
-        if ($FontChangeType) {
-            $HWND_BROADCAST = [IntPtr]0xffff
-            $WM_FONTCHANGE = 0x001D
-            $SMTO_ABORTIFHUNG = 0x0002
-            $result = [UIntPtr]::Zero
-            [BaoFont.FontChangeNotifier]::SendMessageTimeout($HWND_BROADCAST, $WM_FONTCHANGE, [UIntPtr]::Zero, $null, $SMTO_ABORTIFHUNG, 1000, [ref]$result) | Out-Null
-        }
-    } catch {}
-}
-
 function Set-PowerShellExecutionPolicy {
     try {
         $policy = Get-ExecutionPolicy -Scope CurrentUser -ErrorAction SilentlyContinue
@@ -948,30 +842,31 @@ function Invoke-Install {
 
     LogHeader 'winget';              Install-WinGet
     LogHeader 'packages';            Install-Packages
-    LogHeader 'font';                Install-NerdFont
     LogHeader 'bao-profile';          Install-RepoFiles
     LogHeader 'terminal theme';      Configure-BaoTerminalSettings
 
     Write-Host ''
     if (-not $Force) {
-        Write-ResultCard -Title 'all set. installation complete.' -Subtitle 'open new terminal window at home? (y/n) [y]'
+        Write-ResultCard -Title 'all set. installation complete.'
+        Write-Host ''
+        Write-Host "  $(Write-Fg '#579DEB')$([char]0x2192)$Reset  $(Write-Fg '#EAF7FF')open new terminal window at home? (y/n): $Reset" -NoNewline
+        try { [Console]::CursorVisible = $true } catch {}
+        $ans = Read-Host
         try { [Console]::CursorVisible = $false } catch {}
-        $keyInfo = $null
-        try { $keyInfo = [Console]::ReadKey($true) } catch {}
-        $char = if ($keyInfo) { [string]$keyInfo.KeyChar } else { '' }
 
-        if ($char -match '^(n|N)$') {
+        if ($ans -and $ans.Trim() -match '^(n|no)$') {
             return
         }
 
         # Launch fresh terminal session at Home (~)
         if (Get-Command wt -ErrorAction SilentlyContinue) {
-            Start-Process wt.exe -ArgumentList @('-d', "$env:USERPROFILE")
+            Start-Process wt.exe -ArgumentList @('-w', 'new', '-d', "$env:USERPROFILE")
         } elseif (Get-Command pwsh -ErrorAction SilentlyContinue) {
             Start-Process pwsh.exe -ArgumentList @('-NoExit', '-Command', "Set-Location '$env:USERPROFILE'")
         } else {
             Start-Process powershell.exe -ArgumentList @('-NoExit', '-Command', "Set-Location '$env:USERPROFILE'")
         }
+        Start-Sleep -Milliseconds 500
         try { Clear-Host } catch {}
         [Environment]::Exit(0)
     } else {
@@ -1023,10 +918,6 @@ function Get-PlanItems {
         $done = [bool](Get-Command $pkg.Cmd -ErrorAction SilentlyContinue)
         $items.Add(@{ Label = $pkg.Name; Done = $done; Tag = '' })
     }
-
-    $fontDone = $SkipFont -or (Test-JetBrainsFontInstalled)
-    $fontTag = if ($SkipFont) { 'skip' } else { '' }
-    $items.Add(@{ Label = 'Nerd Font'; Done = $fontDone; Tag = $fontTag })
 
     $themeDone = Test-TerminalThemeInstalled
     $themeTag = if ($themeDone) { 'bao-shell' } else { 'defaults' }
@@ -1220,7 +1111,7 @@ function Read-UninstallMode {
 
     Show-RevertOverlayCard -Selected $selected
 
-    # Labeled loop allows breaking out of loop from inside switch block
+    #labeled loop allows breaking out of loop from inside switch block
     :revertLoop while ($true) {
         $keyInfo = $null
         try {
@@ -1291,7 +1182,6 @@ if ($Uninstall) {
             switch ($choice) {
                 'Install'   {
                     Invoke-Install
-                    Wait-BaoReturn
                 }
                 'Uninstall' {
                     $mode = Read-UninstallMode
