@@ -51,17 +51,21 @@ function Write-Gradient {
     }
 }
 
-$Script:ProgressStep  = 0
-$Script:ProgressTotal = 0
+function Clear-Line {
+    try {
+        if ([Console]::IsOutputRedirected) {
+            Write-Host "`r" -NoNewline
+            return
+        }
+        $w = Get-ConsoleWidth
+        Write-Host ("`r" + (' ' * [Math]::Max(1, $w - 1)) + "`r") -NoNewline
+    } catch {
+        try { Write-Host "`r" -NoNewline } catch {}
+    }
+}
 
 function LogHeader($title) {
-    if ($Script:ProgressTotal -gt 0) {
-        $Script:ProgressStep = [Math]::Min($Script:ProgressTotal, $Script:ProgressStep + 1)
-        $pct = [Math]::Round(($Script:ProgressStep / $Script:ProgressTotal) * 100)
-        Write-Host "  $(Write-Fg '#EAF7FF')$([char]0x25C6)  $(Write-Fg '#B8E7FF')$title$Reset  $(Write-Fg '#579DEB')[$pct%]$Reset"
-    } else {
-        Write-Host "  $(Write-Fg '#EAF7FF')$([char]0x25C6)  $(Write-Fg '#B8E7FF')$title$Reset"
-    }
+    Write-Host "  $(Write-Fg '#EAF7FF')$([char]0x25C6)  $(Write-Fg '#B8E7FF')$title$Reset"
 }
 
 function Log($msg, $color = '#C7E8FF') {
@@ -216,25 +220,22 @@ function Invoke-Task {
     )
 
     $textColor = Write-Fg '#C7E8FF'
-    $pctStr = if ($Script:ProgressTotal -gt 0) {
-        $pct = [Math]::Min(100, [Math]::Round(($Script:ProgressStep / $Script:ProgressTotal) * 100))
-        "$(Write-Fg '#579DEB')[$pct%]$Reset  "
-    } else { '' }
 
     for ($i = 0; $i -lt 8; $i++) {
         $frame = $SpinnerFrames[$i % $SpinnerFrames.Count]
         $color = Write-Fg $Palette[$i % $Palette.Count]
-        try { Write-Host "$Esc[2K`r  $color$frame$Reset  $pctStr$textColor$Label$Reset..." -NoNewline } catch {}
+        Clear-Line
+        try { Write-Host "  $color$frame$Reset  $textColor$Label$Reset..." -NoNewline } catch {}
         Start-Sleep -Milliseconds 40
     }
 
     try {
         & $Action
-        try { Write-Host "$Esc[2K`r" -NoNewline } catch {}
+        Clear-Line
         if ($DoneLabel) { Ok $DoneLabel } else { Ok $Label }
         return $true
     } catch {
-        try { Write-Host "$Esc[2K`r" -NoNewline } catch {}
+        Clear-Line
         Log "$([char]0x2715)  $Label failed: $_" '#579DEB'
         return $false
     }
@@ -275,11 +276,6 @@ function Invoke-ExternalTask {
     )
 
     $textColor = Write-Fg '#C7E8FF'
-    $pctStr = if ($Script:ProgressTotal -gt 0) {
-        $pct = [Math]::Min(100, [Math]::Round(($Script:ProgressStep / $Script:ProgressTotal) * 100))
-        "$(Write-Fg '#579DEB')[$pct%]$Reset  "
-    } else { '' }
-
     $stdOut = [System.IO.Path]::GetTempFileName()
     $stdErr = [System.IO.Path]::GetTempFileName()
     $exitCode = 1
@@ -297,7 +293,8 @@ function Invoke-ExternalTask {
             $frame = $SpinnerFrames[$frameIdx % $SpinnerFrames.Count]
             $color = Write-Fg $Palette[$frameIdx % $Palette.Count]
             $frameIdx++
-            try { Write-Host "$Esc[2K`r  $color$frame$Reset  $pctStr$textColor$Label$Reset..." -NoNewline } catch {}
+            Clear-Line
+            try { Write-Host "  $color$frame$Reset  $textColor$Label$Reset..." -NoNewline } catch {}
         }
         $proc.WaitForExit()
         $exitCode = $proc.ExitCode
@@ -311,7 +308,7 @@ function Invoke-ExternalTask {
         Remove-Item $stdOut, $stdErr -Force -ErrorAction SilentlyContinue
     }
 
-    try { Write-Host "$Esc[2K`r" -NoNewline } catch {}
+    Clear-Line
 
     if ($exitCode -ne 0) {
         $reason = Get-FailureReason -ExitCode $exitCode -StdText $capturedText
@@ -770,8 +767,24 @@ function Install-WinGet {
     }
 }
 
+function Ensure-WinGetSourcesReady {
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        try {
+            $p = Start-Process winget -ArgumentList @('source', 'update', '--disable-interactivity') `
+                -NoNewWindow -PassThru -Wait -ErrorAction SilentlyContinue
+            if ($p -and $p.ExitCode -ne 0) {
+                Start-Process winget -ArgumentList @('source', 'reset', '--force', '--disable-interactivity') `
+                    -NoNewWindow -PassThru -Wait -ErrorAction SilentlyContinue | Out-Null
+                Start-Process winget -ArgumentList @('source', 'update', '--disable-interactivity') `
+                    -NoNewWindow -PassThru -Wait -ErrorAction SilentlyContinue | Out-Null
+            }
+        } catch {}
+    }
+}
+
 function Install-Packages {
     Sync-Path
+    Ensure-WinGetSourcesReady
     foreach ($pkg in $Packages) {
         if (Get-Command $pkg.Cmd -ErrorAction SilentlyContinue) {
             Ok "$($pkg.Name) (already installed)"
@@ -780,7 +793,7 @@ function Install-Packages {
                 -ArgumentList @('install', '--id', $pkg.Id, '--exact', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity') `
                 -DoneLabel $pkg.Name
             if (-not $ok) {
-                #sync path again in case package binary was just placed in winget path
+                Ensure-WinGetSourcesReady
                 Sync-Path
             }
         }
@@ -1093,7 +1106,7 @@ function Read-UninstallMode {
 
     Show-RevertOverlayCard -Selected $selected
 
-    #labeled loop allows breaking out of loop from inside switch block
+    # Labeled loop allows breaking out of loop from inside switch block
     :revertLoop while ($true) {
         $keyInfo = $null
         try {
