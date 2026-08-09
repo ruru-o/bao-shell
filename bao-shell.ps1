@@ -307,13 +307,18 @@ function Invoke-ExternalTask {
 
     Clear-Line
 
-    if ($exitCode -ne 0) {
+    $isAlreadyInstalled = ($exitCode -eq -1978335153 -or $capturedText -match 'already installed|existing package|No available upgrade|0x8a15004f')
+    if ($exitCode -eq 0 -or $isAlreadyInstalled) {
+        $msg = if ($DoneLabel) { $DoneLabel } else { $Label }
+        if ($isAlreadyInstalled -and -not $msg.EndsWith('(already installed)')) {
+            $msg += ' (already installed)'
+        }
+        Ok $msg
+        return $true
+    } else {
         $reason = Get-FailureReason -ExitCode $exitCode -StdText $capturedText
         Log "$([char]0x2715)  $Label failed: $reason" '#579DEB'
         return $false
-    } else {
-        if ($DoneLabel) { Ok $DoneLabel } else { Ok $Label }
-        return $true
     }
 }
 
@@ -421,22 +426,25 @@ function Install-RepoFiles {
 
     $ompReplacement = @'
 if (-not (Get-Command oh-my-posh -ErrorAction SilentlyContinue) -or -not (Get-Command fastfetch -ErrorAction SilentlyContinue)) {
-    $env:PATH = @(
+    $env:PATH = (@(
         [Environment]::GetEnvironmentVariable('PATH', 'Machine'),
         [Environment]::GetEnvironmentVariable('PATH', 'User'),
         "$env:LOCALAPPDATA\Microsoft\WinGet\Links",
         "$env:LOCALAPPDATA\Programs\oh-my-posh\bin",
         "C:\Program Files\oh-my-posh\bin"
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } -join ';'
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }) -join ';'
 }
 
 $BaoOmpLine = Get-Command -Name oh-my-posh -ErrorAction SilentlyContinue
 if ($null -ne $BaoOmpLine) {
-    $rawText = & $BaoOmpLine print init pwsh --config 'agnosterplus' 2>$null
-    if (-not $rawText) {
-        $rawText = & $BaoOmpLine init pwsh --config 'agnosterplus' 2>$null
-    }
+    $rawText = & $BaoOmpLine init pwsh --config 'agnosterplus' 2>$null
     if ($PSVersionTable.PSVersion.Major -le 5) {
+        if ($rawText -match "['\`"]([^'\`"]+?\.ps1)['\`"]") {
+            $cacheFile = $Matches[1]
+            if (Test-Path -LiteralPath $cacheFile) {
+                $rawText = Get-Content -LiteralPath $cacheFile -Raw -ErrorAction SilentlyContinue
+            }
+        }
         $rawText = $rawText -replace 'Get-PSReadLineKeyHandler\s+[^\)\s\r\n]+', '@{Function=""}'
     }
     Invoke-Expression $rawText
@@ -816,16 +824,17 @@ function Ensure-WinGetSourcesReady {
     if ($Script:WinGetSourcesChecked) { return }
     $Script:WinGetSourcesChecked = $true
 
-    $ok = Invoke-ExternalTask -Label 'updating winget package sources' -FilePath 'winget' `
-        -ArgumentList @('source', 'update', '--disable-interactivity', '--no-progress') `
-        -DoneLabel 'winget package sources updated'
-    if (-not $ok) {
-        $null = Invoke-ExternalTask -Label 'resetting winget package sources' -FilePath 'winget' `
-            -ArgumentList @('source', 'reset', '--force', '--disable-interactivity', '--no-progress') `
-            -DoneLabel 'winget package sources reset'
-        $null = Invoke-ExternalTask -Label 'updating winget package sources' -FilePath 'winget' `
-            -ArgumentList @('source', 'update', '--disable-interactivity', '--no-progress') `
-            -DoneLabel 'winget package sources updated'
+    $p = Start-Process -FilePath 'winget' `
+        -ArgumentList @('source', 'update', '--disable-interactivity') `
+        -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+    if ($p) {
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) {
+            $p2 = Start-Process -FilePath 'winget' `
+                -ArgumentList @('source', 'reset', '--force', '--disable-interactivity') `
+                -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+            if ($p2) { $p2.WaitForExit() }
+        }
     }
 }
 
