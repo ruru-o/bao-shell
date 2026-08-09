@@ -30,7 +30,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex (irm https://raw.githubuse
 ## Environment Components
 
 <img width="1230" height="685" alt="Screenshot 2026-08-09 194312" src="https://github.com/user-attachments/assets/f67b98be-8fde-4d1b-a2d4-43a11b4202e1" />
-
+<br>
 | Component | Function |
 | --- | --- |
 | `winget` | Windows Package Manager for dependency bootstrap |
