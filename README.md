@@ -22,7 +22,6 @@ This configuration executes without requiring Administrator privileges and ensur
 ## Features
 
 - Dependency bootstrapping via `winget` (PowerShell 7, Oh My Posh, Fastfetch).
-- Automated JetBrainsMono Nerd Font downloading and Windows GDI font installation.
 - Custom Fastfetch system information layout with ASCII branding.
 - Automatic backups of existing PowerShell profiles prior to modification.
 - Interactive TUI menu for setup, reverting configuration, or full system purges.
